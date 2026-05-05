@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MediNet — Sistem Integrat de Gestiune Medicală Distribuit</title>
+<link rel="stylesheet" href="/static/style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v20M2 12h20"/>
+        <circle cx="12" cy="12" r="9"/>
+      </svg>
+    </div>
+    <div>
+      <h1>MediNet</h1>
+      <p class="subtitle">Sistem Integrat de Gestiune Medicală · Bază de date distribuită</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btnRefresh" class="btn ghost">Reîmprospătare</button>
+    <button id="btnReset" class="btn danger">Reset demo</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="overview">Privire de ansamblu</button>
+  <button class="tab" data-tab="pacienti">Pacienți</button>
+  <button class="tab" data-tab="programari">Programări &amp; Facturi</button>
+  <button class="tab" data-tab="medici">Medici (HR)</button>
+  <button class="tab" data-tab="nomenclator">Nomenclatoare</button>
+  <button class="tab" data-tab="raport">Raport OLAP</button>
+  <button class="tab" data-tab="log">Jurnal interogări</button>
+</nav>
+
+<main>
+  <!-- ============================================================ -->
+  <section class="tab-panel active" data-panel="overview">
+    <div class="grid two">
+      <div class="card">
+        <h2>Topologie distribuită</h2>
+        <p class="muted">Rețeaua este alcătuită din 4 noduri: un sediu central (S1) și 3 filiale regionale (S2 / S3 / S4). Datele tranzacționale sunt fragmentate orizontal pe regiuni; nomenclatoarele sunt replicate complet; tabelul MEDIC este fragmentat vertical.</p>
+        <div id="topology" class="topology"></div>
+      </div>
+      <div class="card">
+        <h2>Status retea</h2>
+        <div id="networkStatus" class="network-grid">Se încarcă…</div>
+      </div>
+    </div>
+
+    <div class="grid three">
+      <div class="card stat">
+        <div class="label">Pacienți (global)</div>
+        <div class="value" id="kpiPacienti">—</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Programări (global)</div>
+        <div class="value" id="kpiProgramari">—</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Total facturat</div>
+        <div class="value" id="kpiFacturat">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Strategie de fragmentare</h2>
+      <div class="frag-grid">
+        <div>
+          <h4>Fragmentare orizontală primară</h4>
+          <code>PACIENT₁ = σ regiune='Sud' (PACIENT) → S2</code><br/>
+          <code>PACIENT₂ = σ regiune='Vest' (PACIENT) → S3</code><br/>
+          <code>PACIENT₃ = σ regiune='Est' (PACIENT) → S4</code>
+        </div>
+        <div>
+          <h4>Fragmentare orizontală derivată</h4>
+          <code>PROGRAMAREᵢ = PROGRAMARE ⋉ PACIENTᵢ</code><br/>
+          <code>FACTURAᵢ = FACTURA ⋉ PROGRAMAREᵢ</code>
+        </div>
+        <div>
+          <h4>Fragmentare verticală MEDIC</h4>
+          <code>MEDIC_OP = π id, nume, prenume, cod_parafa (MEDIC) → replicat S2/S3/S4</code><br/>
+          <code>MEDIC_HR = π id, data_angajarii, salariu (MEDIC) → exclusiv S1</code>
+        </div>
+        <div>
+          <h4>Replicare completă</h4>
+          <code>SECTIE, SPECIALIZARE, DIAGNOSTIC, TRATAMENT</code> → S1, S2, S3, S4
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="pacienti">
+    <div class="grid two">
+      <div class="card">
+        <h2>Pacient nou (transparență locație)</h2>
+        <p class="muted">Pacientul este rutat automat către nodul corect al rețelei pe baza regiunii.</p>
+        <form id="formPacient" class="form">
+          <div class="row">
+            <label>Nume<input name="nume" required /></label>
+            <label>Prenume<input name="prenume" required /></label>
+          </div>
+          <div class="row">
+            <label>CNP<input name="cnp" required pattern="\d{13}" maxlength="13" /></label>
+            <label>Data nașterii<input name="data_nasterii" type="date" required /></label>
+          </div>
+          <div class="row">
+            <label>Gen
+              <select name="gen" required>
+                <option>Masculin</option>
+                <option>Feminin</option>
+              </select>
+            </label>
+            <label>Regiune
+              <select name="regiune" required>
+                <option>Sud</option>
+                <option>Vest</option>
+                <option>Est</option>
+              </select>
+            </label>
+          </div>
+          <button class="btn primary">Adaugă pacient</button>
+          <div class="form-feedback" id="pacientFeedback"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Vedere globală pacienți</h2>
+        <p class="muted">View construit prin <code>UNION ALL</code> peste toate fragmentele orizontale.</p>
+        <div class="filter-row">
+          <label>Filtrează nod
+            <select id="filterPacientNod">
+              <option value="">Toate (global)</option>
+              <option value="S2">S2 — Sud</option>
+              <option value="S3">S3 — Vest</option>
+              <option value="S4">S4 — Est</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table id="tablePacienti">
+            <thead><tr><th>ID</th><th>Nume</th><th>CNP</th><th>Regiune</th><th>Nod</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="programari">
+    <div class="grid two">
+      <div class="card">
+        <h2>Programare nouă</h2>
+        <p class="muted">FK distribuit: pacientul este căutat în toate nodurile locale înainte de inserare.</p>
+        <form id="formProgramare" class="form">
+          <div class="row">
+            <label>ID pacient
+              <select name="id_pacient" id="selectPacient" required></select>
+            </label>
+            <label>Medic
+              <select name="id_medic" id="selectMedic" required></select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Tratament
+              <select name="id_tratament" id="selectTratament">
+                <option value="">— niciun tratament —</option>
+              </select>
+            </label>
+            <label>Data &amp; ora<input name="data_ora" type="datetime-local" required /></label>
+          </div>
+          <div class="row">
+            <label>Status
+              <select name="status">
+                <option>Programat</option>
+                <option>Finalizat</option>
+                <option>Anulat</option>
+              </select>
+            </label>
+            <label>Durată (min)<input name="durata_min" type="number" value="30" min="5" /></label>
+          </div>
+          <button class="btn primary">Salvează programare</button>
+          <div class="form-feedback" id="programareFeedback"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Factură nouă</h2>
+        <form id="formFactura" class="form">
+          <div class="row">
+            <label>ID programare<input name="id_programare" type="number" required /></label>
+            <label>Sumă (RON)<input name="suma" type="number" step="0.01" required /></label>
+          </div>
+          <div class="row">
+            <label>Status plată
+              <select name="status_plata" required>
+                <option>Platit</option>
+                <option>Restant</option>
+                <option>Anulat</option>
+              </select>
+            </label>
+            <label>Data emitere<input name="data_emitere" type="date" /></label>
+          </div>
+          <button class="btn primary">Emite factura</button>
+          <div class="form-feedback" id="facturaFeedback"></div>
+        </form>
+
+        <h3 style="margin-top: 1.4rem;">Diagnostic la programare</h3>
+        <form id="formProgDiag" class="form">
+          <div class="row">
+            <label>ID programare<input name="id_programare" type="number" required /></label>
+            <label>Diagnostic
+              <select name="id_diagnostic" id="selectDiagnostic" required></select>
+            </label>
+          </div>
+          <div class="row">
+            <label class="check">
+              <input name="este_principal" type="checkbox" /> Diagnostic principal
+            </label>
+          </div>
+          <button class="btn">Atașează diagnostic</button>
+          <div class="form-feedback" id="progDiagFeedback"></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Vedere globală programări</h2>
+      <div class="table-wrap">
+        <table id="tableProgramari">
+          <thead><tr><th>ID</th><th>Pacient</th><th>Medic</th><th>Tratament</th><th>Data/Ora</th><th>Status</th><th>Nod</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Vedere globală facturi</h2>
+      <div class="table-wrap">
+        <table id="tableFacturi">
+          <thead><tr><th>ID</th><th>Programare</th><th>Data</th><th>Sumă</th><th>Status</th><th>Nod</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="medici">
+    <div class="grid two">
+      <div class="card">
+        <h2>Adaugă medic (fragmentare verticală)</h2>
+        <p class="muted">MEDIC_OP se replică pe toate nodurile; MEDIC_HR rămâne exclusiv pe S1.</p>
+        <form id="formMedic" class="form">
+          <div class="row">
+            <label>ID medic<input name="id_medic" type="number" required /></label>
+            <label>Cod parafă<input name="cod_parafa" required /></label>
+          </div>
+          <div class="row">
+            <label>Nume<input name="nume" required /></label>
+            <label>Prenume<input name="prenume" required /></label>
+          </div>
+          <div class="row">
+            <label>Data angajării<input name="data_angajarii" type="date" required /></label>
+            <label>Salariu (RON)<input name="salariu" type="number" step="0.01" required /></label>
+          </div>
+          <button class="btn primary">Înregistrează medic</button>
+          <div class="form-feedback" id="medicFeedback"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Vedere globală V_MEDIC_COMPLET</h2>
+        <p class="muted">Joncțiune <code>MEDIC_OP ⋈ MEDIC_HR</code> – ascunde fragmentarea verticală.</p>
+        <div class="table-wrap">
+          <table id="tableMedici">
+            <thead><tr><th>ID</th><th>Nume</th><th>Cod parafă</th><th>Data angajării</th><th>Salariu</th><th>Acțiuni</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Constrângere distribuită — modificare salariu</h2>
+      <p class="muted">Înainte de UPDATE pe MEDIC_HR (S1), sistemul interoghează toate nodurile locale (S2/S3/S4) pentru facturi cu status <em>Restant</em>. Dacă există, mărirea este blocată.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="nomenclator">
+    <div class="card">
+      <h2>Replicare DIAGNOSTIC (master = S2 SUD)</h2>
+      <p class="muted">Inserarea pe nodul master se propagă automat (similar unui trigger distribuit) către S3, S4 și S1.</p>
+      <form id="formDiagnostic" class="form inline">
+        <input name="cod_boala" placeholder="Cod boală (ICD)" required />
+        <input name="nume" placeholder="Denumire" required />
+        <select name="severitate" required>
+          <option>Scazut</option>
+          <option>Mediu</option>
+          <option>Critic</option>
+        </select>
+        <button class="btn primary">Adaugă &amp; replică</button>
+      </form>
+      <div class="form-feedback" id="diagnosticFeedback"></div>
+    </div>
+
+    <div class="grid four">
+      <div class="card mini">
+        <h3>S1 (Global)</h3>
+        <ul id="diagListS1" class="thin-list"></ul>
+      </div>
+      <div class="card mini">
+        <h3>S2 (Sud — master)</h3>
+        <ul id="diagListS2" class="thin-list"></ul>
+      </div>
+      <div class="card mini">
+        <h3>S3 (Vest)</h3>
+        <ul id="diagListS3" class="thin-list"></ul>
+      </div>
+      <div class="card mini">
+        <h3>S4 (Est)</h3>
+        <ul id="diagListS4" class="thin-list"></ul>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>Tratamente</h2>
+        <div class="table-wrap"><table id="tableTratament"><thead><tr><th>ID</th><th>Denumire</th><th>Tip</th><th>Cost</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Specializări</h2>
+        <div class="table-wrap"><table id="tableSpecializare"><thead><tr><th>ID</th><th>Denumire</th><th>Descriere</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="raport">
+    <div class="card">
+      <h2>Raport OLAP — Performanța medicilor pe diagnostic</h2>
+      <p class="muted">Implementarea cererii complexe din analiza distribuită: <em>„Pentru un diagnostic dat, afișați medicul, salariul, numărul de pacienți distincți și suma totală facturată, indiferent de filială.”</em>. Cele 3 strategii rulează același business case dar cu metode diferite de execuție distribuită.</p>
+      <form id="formRaport" class="form inline">
+        <label>Diagnostic conține<input name="diagnostic_name" value="Diabet" required /></label>
+        <label>Anul (opțional)<input name="year" type="number" placeholder="ex: 2026" /></label>
+        <button class="btn primary">Rulează toate strategiile</button>
+      </form>
+    </div>
+
+    <div class="grid three" id="raportGrid">
+      <div class="card report-card" data-strategy="sequential">
+        <h3>① Sequential / Nested Loops <span class="badge gray">RBO</span></h3>
+        <p class="muted small">Aduce toate rândurile pe coordonator și face JOIN-urile secvențial.</p>
+        <div class="report-meta"></div>
+        <div class="table-wrap"><table><thead><tr><th>Medic</th><th>Salariu</th><th>Pacienți</th><th>Total</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card report-card" data-strategy="hash">
+        <h3>② Hash Join <span class="badge blue">CBO</span></h3>
+        <p class="muted small">Filtrare locală + hash join in memorie.</p>
+        <div class="report-meta"></div>
+        <div class="table-wrap"><table><thead><tr><th>Medic</th><th>Salariu</th><th>Pacienți</th><th>Total</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card report-card" data-strategy="parallel">
+        <h3>③ Parallel + Semi-Join <span class="badge green">PARALLEL</span></h3>
+        <p class="muted small">Agregări paralele pe S2/S3/S4 + semi-join final pe S1.</p>
+        <div class="report-meta"></div>
+        <div class="table-wrap"><table><thead><tr><th>Medic</th><th>Salariu</th><th>Pacienți</th><th>Total</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="tab-panel" data-panel="log">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2>Jurnalul interogărilor distribuite</h2>
+        <button id="btnClearLog" class="btn ghost small">Șterge jurnal</button>
+      </div>
+      <p class="muted">Fiecare instrucțiune trimisă către un nod este marcată cu codul nodului (S1/S2/S3/S4), tipul operației (REPLICATION, FK CHECK, PARALLEL AGG etc.) și durata măsurată.</p>
+      <div id="logList" class="log-list"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>MediNet · Sistem de gestiune medicală distribuit · 4 noduri (S1/S2/S3/S4) · SQLite + Flask + Vanilla JS</p>
+</footer>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
